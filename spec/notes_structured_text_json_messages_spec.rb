@@ -111,6 +111,40 @@ EOF
     it "should strip whitespace" do
       NotesStructuredTextJsonMessages.header_values(["Foo:   a ,\tb  ,  c  ", "Bar: bar", "Baz: baz"], "Foo").should == ["a", "b", "c"]
     end
+
+    it "should strip on a given character" do
+      NotesStructuredTextJsonMessages.header_values(["Foo: a b c", "Bar: c d e", "Baz: f g h"], "Bar", " ").should == ["c", "d", "e"]
+    end
+
+    it "should strip with a given method" do
+      NotesStructuredTextJsonMessages.header_values(['SendTo: "mcfoo, foo" <foo.mcfoo@foo.com>,"bar \\"barry\\" mcbar" <bar.mcbar@bar.com>'],
+                                                    "SendTo",
+                                                    :split_rfc822_addresses).should ==
+        ['"mcfoo, foo" <foo.mcfoo@foo.com>',
+         '"bar \\"barry\\" mcbar" <bar.mcbar@bar.com>']
+    end
+  end
+
+  describe "split_rfc822_addresses" do
+    it "should do nothing to a single address" do
+      NotesStructuredTextJsonMessages.split_rfc822_addresses('"foo mcfoo" <foo.mcfoo@foo.com>').should ==
+        ['"foo mcfoo" <foo.mcfoo@foo.com>']
+    end
+    
+    it "should split a simple case" do
+      NotesStructuredTextJsonMessages.split_rfc822_addresses('"foo mcfoo" <foo.mcfoo@foo.com>,"bar mcbar" <bar.mcbar@bar.com>').should ==
+        ['"foo mcfoo" <foo.mcfoo@foo.com>','"bar mcbar" <bar.mcbar@bar.com>']
+    end
+    
+    it "should split if there is a comma inside a quoted string" do
+      NotesStructuredTextJsonMessages.split_rfc822_addresses('"mcfoo, foo" <foo.mcfoo@foo.com>,"bar mcbar" <bar.mcbar@bar.com>').should ==
+        ['"mcfoo, foo" <foo.mcfoo@foo.com>','"bar mcbar" <bar.mcbar@bar.com>']
+    end
+
+    it "should split if there is a quoted double-qoute within a string" do
+      NotesStructuredTextJsonMessages.split_rfc822_addresses('"foo \\"foo foo\\" mcfoo" <foo.mcfoo@foo.com>,"bar mcbar" <bar.mcbar@bar.com>').should ==
+        ['"foo \\"foo foo\\" mcfoo" <foo.mcfoo@foo.com>','"bar mcbar" <bar.mcbar@bar.com>']
+    end
   end
 
   describe "strip_angles" do
@@ -161,11 +195,11 @@ EOF
       stub(NotesStructuredTextJsonMessages).is_message_block?(block){true}
       stub(NotesStructuredTextJsonMessages).extract_json_message(block, anything){raise "boo"}
 
-      mock(logger).warn(anything) do |err| 
+      mock(logger).error(anything) do |err| 
         err.is_a?(Exception).should == true
         err.message.should =~ /boo/
       end
-      mock(logger).warn(block.join("\n"))
+      mock(logger).error(block.join("\n"))
 
       lambda {
         NotesStructuredTextJsonMessages.process_block(output_dir, block)
@@ -193,6 +227,15 @@ EOF
       NotesStructuredTextJsonMessages.process_address('"Foo Bar" <Foo@Bar.com>').should ==
         {:name=>"Foo Bar", :email_address=>"foo@bar.com"}
     end
+
+    it "should log a warning if an internet email address does not parse to a TMail::Address" do
+      logger = Object.new
+      stub(NotesStructuredTextJsonMessages).logger{logger}
+      
+      mock(logger).warn(/does not parse .* TMail::Address/)
+
+      NotesStructuredTextJsonMessages.process_address('Undisclosed recipients:;').should == nil
+    end
   end
 
   describe "process_address_pair" do
@@ -213,8 +256,8 @@ EOF
       notes_field = Object.new
       block = Object.new
 
-      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field){["foo", "bar"]}
-      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field){["foo"]}
+      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["foo", "bar"]}
+      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){["foo"]}
       
       lambda {
         NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field)
@@ -226,8 +269,8 @@ EOF
       notes_field = Object.new
       block = Object.new
 
-      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field){["foo.mcfoo@foo.com", "bar.mcbar@bar.com"]}
-      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field){["CN=foo mcfoo/OU=main/O=foo", "CN=bar mcbar/OU=main/O=bar"]}
+      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["foo.mcfoo@foo.com", "bar.mcbar@bar.com"]}
+      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){["CN=foo mcfoo/OU=main/O=foo", "CN=bar mcbar/OU=main/O=bar"]}
 
       mock(NotesStructuredTextJsonMessages).process_address_pair("foo.mcfoo@foo.com", "CN=foo mcfoo/OU=main/O=foo")
       mock(NotesStructuredTextJsonMessages).process_address_pair("bar.mcbar@bar.com", "CN=bar mcbar/OU=main/O=bar")
@@ -240,8 +283,8 @@ EOF
       notes_field = Object.new
       block = Object.new
 
-      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field){["foo.mcfoo@foo.com", "bar.mcbar@bar.com"]}
-      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field){nil}
+      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["foo.mcfoo@foo.com", "bar.mcbar@bar.com"]}
+      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){nil}
 
       mock(NotesStructuredTextJsonMessages).process_address("foo.mcfoo@foo.com")
       mock(NotesStructuredTextJsonMessages).process_address("bar.mcbar@bar.com")
@@ -254,8 +297,8 @@ EOF
       notes_field = Object.new
       block = Object.new
 
-      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field){nil}
-      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field){["CN=foo mcfoo/OU=main/O=foo", "CN=bar mcbar/OU=main/O=bar"]}
+      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){nil}
+      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){["CN=foo mcfoo/OU=main/O=foo", "CN=bar mcbar/OU=main/O=bar"]}
 
       mock(NotesStructuredTextJsonMessages).process_address("CN=foo mcfoo/OU=main/O=foo")
       mock(NotesStructuredTextJsonMessages).process_address("CN=bar mcbar/OU=main/O=bar")
@@ -338,6 +381,14 @@ EOF
       lambda {
         NotesStructuredTextJsonMessages.extract_json_message(block)
       }.should raise_error(/no From/)
+    end
+
+    it "should raise an exception if there are no recipients" do
+      block = notes_message("SendTo"=>nil, "CopyTo"=>nil, "BlindCopyTo"=>nil)
+      
+      lambda {
+        NotesStructuredTextJsonMessages.extract_json_message(block)
+      }.should raise_error(/no recipients/)
     end
 
     it "should raise an exception if there is no PostedDate" do
@@ -453,5 +504,4 @@ EOF
                          {:email_address=>"gar.mcgar@gar.com", :name=>"gar mcgar"}]
     end
   end
-
 end

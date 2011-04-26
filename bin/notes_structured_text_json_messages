@@ -1,0 +1,41 @@
+#!/usr/bin/env ruby
+$: << File.expand_path("../../lib", __FILE__)
+require 'rubygems'
+require 'action_mailer'
+require 'notes_structured_text_json_messages'
+require 'optparse'
+require 'logger'
+
+options={:verbose=>true}
+
+USAGE = "Usage: #{File.basename(__FILE__)} <output_dir> <input_files> [<input_file>]* "
+
+OptionParser.new do |opts|
+  opts.banner = "Usage: #{File.basename(__FILE__)} <output_dir> <input_files> [<input_file>]* "
+
+  opts.on("-v", "--[no-]verbose", "Run verbosely (default: true)") do |v|
+    options[:verbose] = v
+  end
+end.parse!
+
+NotesStructuredTextJsonMessages.logger = Logger.new($stderr)
+if options[:verbose]
+  NotesStructuredTextJsonMessages.logger.level=Logger::INFO
+else
+  NotesStructuredTextJsonMessages.logger.level=Logger::WARN
+end
+  
+begin
+  raise "insufficient arguments" if ARGV.length<2
+
+  output_dir = ARGV[0]
+  input_files = ARGV[1..-1]
+
+  NotesStructuredTextJsonMessages.json_messages(output_dir, input_files, options)
+  NotesStructuredTextJsonMessages.log{|logger| logger.info("complete")}
+rescue Exception=>e
+  NotesStructuredTextJsonMessages.log{|logger| logger.error(e)}
+  NotesStructuredTextJsonMessages.log{|logger| logger.info(USAGE)}
+  exit(1)
+end
+exit(0)

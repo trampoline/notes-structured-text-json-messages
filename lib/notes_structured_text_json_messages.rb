@@ -4,6 +4,7 @@ require 'tmail'
 module NotesStructuredTextJsonMessages
   class << self
     attr_accessor :logger
+    attr_accessor :stats
   end
 
   module_function
@@ -11,12 +12,24 @@ module NotesStructuredTextJsonMessages
   def log
     yield logger if logger
   end
+
+  def reset_stats
+    self.stats={}
+  end
+
+  def increment_stats(key)
+    self.stats[key] = (self.stats[key]||0) + 1
+  end
   
   def json_messages(output_dir, input_files, options={})
+    reset_stats
     [*input_files].each do |input_file|
       File.open(input_file, "r") do |input|
         json_messages_from_stream(output_dir, input, options)
       end
+    end
+    stats.each do |k,v|
+      log{|logger| logger.info("#{k}: #{v}")}
     end
   end
 
@@ -51,7 +64,42 @@ module NotesStructuredTextJsonMessages
 
   def header_values(block, header, split_on=",")
     h = header_value(block, header)
-    h.split(split_on).map(&:strip) if h
+    if h
+      if split_on.is_a?(Symbol)
+        self.send(split_on, h)
+      else
+        h.split(split_on)
+      end.map(&:strip)
+    end
+  end
+
+  def split_rfc822_addresses(header)
+    addresses = []
+    quoted_pair = false
+    quoted_string = false
+    buf = ""
+    header.each_char do |c|
+      if quoted_pair
+        buf << c
+        quoted_pair = false
+      elsif quoted_string && c=='\\'
+        buf << c
+        quoted_pair = true
+      elsif !quoted_string && c==','
+        addresses << buf
+        buf = ""
+      elsif !quoted_string && c=='"'
+        buf << c
+        quoted_string = true
+      elsif quoted_string && c=='"'
+        buf << c
+        quoted_string = false
+      else
+        buf << c
+      end
+    end
+    addresses << buf if buf.length>0
+    addresses
   end
   
   def strip_angles(value)
@@ -62,11 +110,15 @@ module NotesStructuredTextJsonMessages
     if is_message_block?(block)
       json_message = extract_json_message(block, options)
       output_json_message(output_dir, json_message)
+      increment_stats(:message)
+    else
+      increment_stats(:non_message)
     end
   rescue Exception=>e
+    increment_stats(:failed_message)
     log do |logger| 
-      logger.warn(e)
-      logger.warn(block.join("\n"))
+      logger.error(e)
+      logger.error(block.join("\n"))
     end
   end
 
@@ -90,8 +142,12 @@ module NotesStructuredTextJsonMessages
         :notes_dn=>addr}
     else
       ta = TMail::Address.parse(addr)
-      { :name=>ta.name,
-        :email_address=>ta.address.downcase}
+      if ta.is_a?(TMail::Address)
+        { :name=>ta.name,
+          :email_address=>ta.address.downcase}
+      else
+        log{|logger| logger.warn("addr does not parse to a TMail::Address: #{addr}")}
+      end
     end
   end
 
@@ -104,8 +160,8 @@ module NotesStructuredTextJsonMessages
   end
 
   def process_addresses(block, inet_field, notes_field)
-    inet_h = header_values(block, inet_field)
-    notes_h = header_values(block, notes_field)
+    inet_h = header_values(block, inet_field, :split_rfc822_addresses)
+    notes_h = header_values(block, notes_field, :split_rfc822_addresses)
 
     if inet_h && notes_h
       if inet_h.length == notes_h.length
@@ -151,6 +207,8 @@ module NotesStructuredTextJsonMessages
     to = process_addresses(block, INET_TO, TO)
     cc = process_addresses(block, INET_CC, CC)
     bcc = process_addresses(block, INET_BCC, BCC)
+
+    raise "no recipients" if (to||[]).size + (cc||[]).size + (bcc||[]).size == 0
     
     { :message_type=>"email",
       :message_id=>message_id,
