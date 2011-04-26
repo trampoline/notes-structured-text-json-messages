@@ -71,7 +71,7 @@ module NotesStructuredTextJsonMessages
   end
 
   MESSAGE_ID = "$MessageID"
-  DATE = "PostedDate"
+  POSTED_DATE = "PostedDate"
   IN_REPLY_TO = "in_reply_to"
   REFERENCES = "references"
   FROM = "From"
@@ -91,7 +91,7 @@ module NotesStructuredTextJsonMessages
     else
       ta = TMail::Address.parse(addr)
       { :name=>ta.name,
-        :email_address=>ta.address}
+        :email_address=>ta.address.downcase}
     end
   end
 
@@ -131,13 +131,20 @@ module NotesStructuredTextJsonMessages
   end
 
   def extract_json_message(block, options={})
-    message_id = header_value(block, MESSAGE_ID) 
-    raise "no #{MESSAGE_ID}" if !message_id
-    date_h = header_value(block, DATE)
-    raise "no #{DATE}" if !date
-    date = parse_date(date_h, options)
-    in_reply_to = header_value(block, IN_REPLY_TO)
-    references = header_values(block, REFERENCES, " ")
+    message_id_h = header_value(block, MESSAGE_ID) 
+    raise "no #{MESSAGE_ID}" if !message_id_h
+    message_id = strip_angles(message_id_h)
+
+    posted_date_h = header_value(block, POSTED_DATE)
+    raise "no #{POSTED_DATE}" if !posted_date_h
+    posted_date = parse_date(posted_date_h, options)
+
+    in_reply_to_h = header_value(block, IN_REPLY_TO)
+    in_reply_to = strip_angles(in_reply_to_h) if in_reply_to_h
+
+    references_h = header_values(block, REFERENCES, " ")
+    references = references_h.map{|r| strip_angles(r)} if references_h
+
     froms = process_addresses(block, INET_FROM, FROM)
     raise "no From:, or more than one From:" if !froms || froms.size>1
     from = froms[0]
@@ -145,8 +152,9 @@ module NotesStructuredTextJsonMessages
     cc = process_addresses(block, INET_CC, CC)
     bcc = process_addresses(block, INET_BCC, BCC)
     
-    { :message_id=>message_id,
-      :date=>date,
+    { :message_type=>"email",
+      :message_id=>message_id,
+      :sent_at=>posted_date,
       :in_reply_to=>in_reply_to,
       :references=>references,
       :from=>from,

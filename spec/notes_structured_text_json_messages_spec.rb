@@ -179,9 +179,19 @@ EOF
         {:name=>"foo bar", :notes_dn=>"CN=foo bar/OU=here/O=there"}
     end
 
+    it "should be case-preserving for distinguished names" do
+      NotesStructuredTextJsonMessages.process_address("CN=Foo Bar/OU=Here/O=There").should == 
+        {:name=>"Foo Bar", :notes_dn=>"CN=Foo Bar/OU=Here/O=There"}
+    end
+
     it "should parse with TMail::Address if !is_distinguished_name?" do
       NotesStructuredTextJsonMessages.process_address('"foo bar" <foo@bar.com>').should ==
         {:name=>"foo bar", :email_address=>"foo@bar.com"}
+    end
+
+    it "should downcase internet email addresses" do
+      NotesStructuredTextJsonMessages.process_address('"Foo Bar" <Foo@Bar.com>').should ==
+        {:name=>"Foo Bar", :email_address=>"foo@bar.com"}
     end
   end
 
@@ -302,39 +312,145 @@ EOF
   end
 
   describe "extract_json_message" do
-    def notes_block(options={})
-      ["$MessageID: <foo123@foo.com>",
-       "PostedDate:  02/01/2011 08:06:10 AM",
-       "In_Reply_To: <bar456@bar.com>",
-       "References: <bar456@bar.com> <ear789@ear.com>",
-       "From: CN=foo mcfoo/OU=fooclub/O=foo",
-       "SendTo: CN=bar mcbar/OU=barclub/O=bar,CN=baz mcbaz/OU=bazclub/O=baz",
-       "CopyTo: CN=dar mcdar/OU=darclub/O=dar,CN=ear mcear/OU=earclub/O=ear",
-       "BlindCopyTo: CN=far mcfar/OU=farclub/O=far,CN=gar mcgar/OU=garclub/O=gar"]
+    def notes_message(options={})
+      h = { 
+        "$MessageID" => "<foo123@foo.com>",
+        "PostedDate" => "02/25/2011 08:06:10 PM",
+        "In_Reply_To" => "<bar456@bar.com>",
+        "References" => "<bar456@bar.com> <ear789@ear.com>",
+        "From" => "CN=foo mcfoo/OU=fooclub/O=foo",
+        "SendTo" => "CN=bar mcbar/OU=barclub/O=bar,CN=baz mcbaz/OU=bazclub/O=baz",
+        "CopyTo" => "CN=dar mcdar/OU=darclub/O=dar,CN=ear mcear/OU=earclub/O=ear",
+        "BlindCopyTo" => "CN=far mcfar/OU=farclub/O=far,CN=gar mcgar/OU=garclub/O=gar"}.merge(options)
+      h.map{|k,v| "#{k}:  #{v}" if v}
     end
 
     it "should raise an exception if there is no message-id" do
+      block = notes_message("$MessageID"=>nil)
+      lambda {
+        NotesStructuredTextJsonMessages.extract_json_message(block)
+      }.should raise_error(/no \$MessageID/)
     end
 
     it "should raise an exception if there is no From: or InetFrom:" do
+      block = notes_message("From"=>nil)
+     
+      lambda {
+        NotesStructuredTextJsonMessages.extract_json_message(block)
+      }.should raise_error(/no From/)
+    end
+
+    it "should raise an exception if there is no PostedDate" do
+      block = notes_message("PostedDate"=>nil)
+     
+      lambda {
+        NotesStructuredTextJsonMessages.extract_json_message(block)
+      }.should raise_error(/no PostedDate/)
     end
 
     it "should remove angle-brackets from message_id, in_reply_to and references" do
+      block = notes_message
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:message_id].should == "foo123@foo.com"
     end
 
     it "should parse a US date correctly" do
+      block = notes_message
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      d = j[:sent_at]
+      d.is_a?(DateTime).should == true
+      d.mday.should == 25
+      d.month.should == 2
+      d.year.should == 2011
+      d.hour.should == 20
+      d.min.should == 6
+      d.sec.should == 10
     end
 
     it "should parse the From / InetFrom fields" do
+      block = notes_message
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:from].should == {:notes_dn=>"CN=foo mcfoo/OU=fooclub/O=foo", :name=>"foo mcfoo"}
+
+      block = notes_message("From"=>'"foo mcfoo" <foo.mcfoo@foo.com>')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:from].should == {:email_address=>"foo.mcfoo@foo.com", :name=>"foo mcfoo"}
+      
+      block = notes_message("InetFrom"=>'"foo mcfoo" <foo.mcfoo@foo.com>', "From"=>"CN=foo mcfoo/OU=fooclub/O=foo")
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:from].should == {:email_address=>"foo.mcfoo@foo.com", :name=>"foo mcfoo"}
+
+      block = notes_message("InetFrom"=>'.', "From"=>'"foo mcfoo" <foo.mcfoo@foo.com>')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:from].should == {:email_address=>"foo.mcfoo@foo.com", :name=>"foo mcfoo"}
     end
 
     it "should parse the SendTo / InetSendTo fields" do
+      block = notes_message
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:to].should == [{:notes_dn=>"CN=bar mcbar/OU=barclub/O=bar", :name=>"bar mcbar"},
+                        {:notes_dn=>"CN=baz mcbaz/OU=bazclub/O=baz", :name=>"baz mcbaz"}]
+
+      block = notes_message("SendTo"=>'"bar mcbar" <bar.mcbar@bar.com>,"baz mcbaz" <baz.mcbaz@baz.com>')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:to].should == [{:email_address=>"bar.mcbar@bar.com", :name=>"bar mcbar"},
+                        {:email_address=>"baz.mcbaz@baz.com", :name=>"baz mcbaz"}]
+
+      block = notes_message("InetSendTo"=>'"bar mcbar" <bar.mcbar@bar.com>,"baz mcbaz" <baz.mcbaz@baz.com>')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:to].should == [{:email_address=>"bar.mcbar@bar.com", :name=>"bar mcbar"},
+                        {:email_address=>"baz.mcbaz@baz.com", :name=>"baz mcbaz"}]
+
+      block = notes_message("InetSendTo"=>'.,"baz mcbaz" <baz.mcbaz@baz.com>', "SendTo"=>'"bar mcbar" <bar.mcbar@bar.com>,"CN=baz mcbaz/OU=bazclub/O=baz"')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:to].should == [{:email_address=>"bar.mcbar@bar.com", :name=>"bar mcbar"},
+                        {:email_address=>"baz.mcbaz@baz.com", :name=>"baz mcbaz"}]
     end
 
     it "should parse the CopyTo / InetCopyTo fields" do
+      block = notes_message
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:cc].should == [{:notes_dn=>"CN=dar mcdar/OU=darclub/O=dar", :name=>"dar mcdar"},
+                        {:notes_dn=>"CN=ear mcear/OU=earclub/O=ear", :name=>"ear mcear"}]
+
+      block = notes_message("CopyTo" => '"dar mcdar" <dar.mcdar@dar.com>,"ear mcear" <ear.mcear@ear.com>')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:cc].should == [{:email_address=>"dar.mcdar@dar.com", :name=>"dar mcdar"},
+                        {:email_address=>"ear.mcear@ear.com", :name=>"ear mcear"}]
+
+      block = notes_message("InetCopyTo" => '"dar mcdar" <dar.mcdar@dar.com>,"ear mcear" <ear.mcear@ear.com>')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:cc].should == [{:email_address=>"dar.mcdar@dar.com", :name=>"dar mcdar"},
+                        {:email_address=>"ear.mcear@ear.com", :name=>"ear mcear"}]
+
+      block = notes_message("InetCopyTo" => '.,"ear mcear" <ear.mcear@ear.com>',
+                            "CopyTo" => '"dar mcdar" <dar.mcdar@dar.com>,CN=ear mcear/OU=earclub/O=ear')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:cc].should == [{:email_address=>"dar.mcdar@dar.com", :name=>"dar mcdar"},
+                        {:email_address=>"ear.mcear@ear.com", :name=>"ear mcear"}]
     end
 
     it "should parse the BlindCopyTo / InetBlindCopyTo fields" do
+      block = notes_message
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:bcc].should == [{:notes_dn=>"CN=far mcfar/OU=farclub/O=far", :name=>"far mcfar"},
+                         {:notes_dn=>"CN=gar mcgar/OU=garclub/O=gar", :name=>"gar mcgar"}]
+
+      block = notes_message("BlindCopyTo" => '"far mcfar" <far.mcfar@far.com>,"gar mcgar" <gar.mcgar@gar.com>')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:bcc].should == [{:email_address=>"far.mcfar@far.com", :name=>"far mcfar"},
+                         {:email_address=>"gar.mcgar@gar.com", :name=>"gar mcgar"}]
+
+      block = notes_message("InetBlindCopyTo" => '"far mcfar" <far.mcfar@far.com>,"gar mcgar" <gar.mcgar@gar.com>')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:bcc].should == [{:email_address=>"far.mcfar@far.com", :name=>"far mcfar"},
+                         {:email_address=>"gar.mcgar@gar.com", :name=>"gar mcgar"}]
+
+      block = notes_message("InetBlindCopyTo" => '.,"gar mcgar" <gar.mcgar@gar.com>',
+                            "BlindCopyTo" => '"far mcfar" <far.mcfar@far.com>,CN=gar mcgar/OU=garclub/O=gar')
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:bcc].should == [{:email_address=>"far.mcfar@far.com", :name=>"far mcfar"},
+                         {:email_address=>"gar.mcgar@gar.com", :name=>"gar mcgar"}]
     end
   end
 
