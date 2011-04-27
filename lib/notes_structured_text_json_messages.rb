@@ -18,8 +18,8 @@ module NotesStructuredTextJsonMessages
     self.stats[key] = (self.stats[key]||0) + 1
   end
   
-  def collect_mapping(notes_dn, email_address)
-    self.mappings << {:notes_dn=>notes_dn, :email_address=>email_address} if self.mappings
+  def collect_mapping(addr1, addr2)
+    self.mappings << [addr1, addr2] if self.mappings
   end
 
   def with_mappings(options)
@@ -183,7 +183,7 @@ module NotesStructuredTextJsonMessages
       inet_addr = process_address(inet_addr)
       notes_addr = process_address(notes_addr)
 
-      collect_mapping(notes_addr[:notes_dn], inet_addr[:email_address])
+      collect_mapping(notes_addr, inet_addr)
 
       inet_addr
     end

@@ -43,13 +43,15 @@ describe NotesStructuredTextJsonMessages do
       mock(File).open(mf, "w"){|f,m,block| block.call(mfs)}
 
       NotesStructuredTextJsonMessages.with_mappings(opts) do
-        NotesStructuredTextJsonMessages.collect_mapping("CN=foo mcfoo/OU=foofoo/O=foo", "foo.mcfoo@foo.com")
-        NotesStructuredTextJsonMessages.collect_mapping("CN=bar mcbar/OU=barbar/O=bar", "bar.mcbar@bar.com")
+        NotesStructuredTextJsonMessages.collect_mapping({:notes_dn=>"CN=foo mcfoo/OU=foofoo/O=foo"}, 
+                                                        {:email_address=>"foo.mcfoo@foo.com"})
+        NotesStructuredTextJsonMessages.collect_mapping({:notes_dn=>"CN=bar mcbar/OU=barbar/O=bar"}, 
+                                                        {:email_address=>"bar.mcbar@bar.com"})
       end
 
       j = JSON.parse(mfs.string)
-      j.should == [{"notes_dn"=>"CN=foo mcfoo/OU=foofoo/O=foo", "email_address"=>"foo.mcfoo@foo.com"},
-                   {"notes_dn"=>"CN=bar mcbar/OU=barbar/O=bar", "email_address"=>"bar.mcbar@bar.com"}]
+      j.should == [[{"notes_dn"=>"CN=foo mcfoo/OU=foofoo/O=foo"}, {"email_address"=>"foo.mcfoo@foo.com"}],
+                   [{"notes_dn"=>"CN=bar mcbar/OU=barbar/O=bar"}, {"email_address"=>"bar.mcbar@bar.com"}]]
     end
   end
 
