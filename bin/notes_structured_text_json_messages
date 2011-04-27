@@ -16,6 +16,10 @@ OptionParser.new do |opts|
   opts.on("-v", "--[no-]verbose", "Run verbosely (default: true)") do |v|
     options[:verbose] = v
   end
+
+  opts.on("-m", "--mapping-file FILE", "output notes-distinguished-name <=> internet-email-address mappings to FILE") do |f|
+    options[:mapping_file] = f
+  end
 end.parse!
 
 NotesStructuredTextJsonMessages.logger = Logger.new($stderr)

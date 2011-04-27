@@ -5,7 +5,7 @@ describe NotesStructuredTextJsonMessages do
     it "should open each file and call json_messages_from_stream with it" do
       output_dir = Object.new
       input_files = [Object.new, Object.new]
-      options = Object.new
+      options = {}
 
       input0 = Object.new
       input1 = Object.new
@@ -31,6 +31,25 @@ describe NotesStructuredTextJsonMessages do
       mock(NotesStructuredTextJsonMessages).process_block(output_dir, ["foo", "bar"], anything)
 
       NotesStructuredTextJsonMessages.json_messages_from_stream(output_dir, input)
+    end
+  end
+
+  describe "with_mappings" do
+    it "should write mapping JSON if mapping_file option is given" do
+      opts = Object.new
+      mf = Object.new
+      mfs = StringIO.new
+      stub(opts).[](:mapping_file){mf}
+      mock(File).open(mf, "w"){|f,m,block| block.call(mfs)}
+
+      NotesStructuredTextJsonMessages.with_mappings(opts) do
+        NotesStructuredTextJsonMessages.collect_mapping("CN=foo mcfoo/OU=foofoo/O=foo", "foo.mcfoo@foo.com")
+        NotesStructuredTextJsonMessages.collect_mapping("CN=bar mcbar/OU=barbar/O=bar", "bar.mcbar@bar.com")
+      end
+
+      j = JSON.parse(mfs.string)
+      j.should == [{"notes_dn"=>"CN=foo mcfoo/OU=foofoo/O=foo", "email_address"=>"foo.mcfoo@foo.com"},
+                   {"notes_dn"=>"CN=bar mcbar/OU=barbar/O=bar", "email_address"=>"bar.mcbar@bar.com"}]
     end
   end
 
@@ -240,12 +259,12 @@ EOF
 
   describe "process_address_pair" do
     it "should process_address the notes_address if the inet_address is '.'" do
-      NotesStructuredTextJsonMessages.process_address_pair(".", "CN=foo bar/OU=here/O=there").should == 
+      NotesStructuredTextJsonMessages.process_address_pair(".", "CN=foo bar/OU=here/O=there", {}).should == 
         {:name=>"foo bar", :notes_dn=>"CN=foo bar/OU=here/O=there"}
     end
 
     it "should process_address the inet_addr if the inet_address is not '.'" do
-      NotesStructuredTextJsonMessages.process_address_pair('"foo bar" <foo@bar.com>', "CN=foo bar/OU=here/O=there").should ==     
+      NotesStructuredTextJsonMessages.process_address_pair('"foo bar" <foo@bar.com>', "CN=foo bar/OU=here/O=there", {}).should ==     
         {:name=>"foo bar", :email_address=>"foo@bar.com"}
     end
   end
@@ -255,12 +274,13 @@ EOF
       inet_field = Object.new
       notes_field = Object.new
       block = Object.new
+      options = {}
 
       stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["foo", "bar"]}
       stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){["foo"]}
       
       lambda {
-        NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field)
+        NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options)
       }.should raise_error(/does not match/)
     end
 
@@ -268,20 +288,22 @@ EOF
       inet_field = Object.new
       notes_field = Object.new
       block = Object.new
+      options={}
 
       stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["foo.mcfoo@foo.com", "bar.mcbar@bar.com"]}
       stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){["CN=foo mcfoo/OU=main/O=foo", "CN=bar mcbar/OU=main/O=bar"]}
 
-      mock(NotesStructuredTextJsonMessages).process_address_pair("foo.mcfoo@foo.com", "CN=foo mcfoo/OU=main/O=foo")
-      mock(NotesStructuredTextJsonMessages).process_address_pair("bar.mcbar@bar.com", "CN=bar mcbar/OU=main/O=bar")
+      mock(NotesStructuredTextJsonMessages).process_address_pair("foo.mcfoo@foo.com", "CN=foo mcfoo/OU=main/O=foo", options)
+      mock(NotesStructuredTextJsonMessages).process_address_pair("bar.mcbar@bar.com", "CN=bar mcbar/OU=main/O=bar", options)
 
-      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field)
+      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options)
     end
 
     it "should call process_address if an inet header is present" do
       inet_field = Object.new
       notes_field = Object.new
       block = Object.new
+      options={}
 
       stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["foo.mcfoo@foo.com", "bar.mcbar@bar.com"]}
       stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){nil}
@@ -289,13 +311,14 @@ EOF
       mock(NotesStructuredTextJsonMessages).process_address("foo.mcfoo@foo.com")
       mock(NotesStructuredTextJsonMessages).process_address("bar.mcbar@bar.com")
 
-      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field)
+      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options)
     end
 
     it "should call process_address if a notes header is present" do
       inet_field = Object.new
       notes_field = Object.new
       block = Object.new
+      options={}
 
       stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){nil}
       stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){["CN=foo mcfoo/OU=main/O=foo", "CN=bar mcbar/OU=main/O=bar"]}
@@ -303,7 +326,7 @@ EOF
       mock(NotesStructuredTextJsonMessages).process_address("CN=foo mcfoo/OU=main/O=foo")
       mock(NotesStructuredTextJsonMessages).process_address("CN=bar mcbar/OU=main/O=bar")
 
-      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field)
+      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options)
     end
     
   end
@@ -320,7 +343,7 @@ EOF
       output_stream = Object.new
       mock(output_stream).<<(json_struct.to_json){output_stream}
 
-      mock(File).open("/a/b/c/d/#{MD5.hexdigest("foo123@foo.com")}", "w") do |fn,m,block|
+      mock(File).open("/a/b/c/d/#{MD5.hexdigest("foo123@foo.com")}.json", "w") do |fn,m,block|
         block.call(output_stream)
       end
 

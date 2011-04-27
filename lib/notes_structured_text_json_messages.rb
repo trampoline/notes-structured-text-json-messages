@@ -5,6 +5,7 @@ module NotesStructuredTextJsonMessages
   class << self
     attr_accessor :logger
     attr_accessor :stats
+    attr_accessor :mappings
   end
 
   module_function
@@ -13,23 +14,47 @@ module NotesStructuredTextJsonMessages
     yield logger if logger
   end
 
-  def reset_stats
-    self.stats={}
-  end
-
   def increment_stats(key)
     self.stats[key] = (self.stats[key]||0) + 1
   end
   
-  def json_messages(output_dir, input_files, options={})
-    reset_stats
-    [*input_files].each do |input_file|
-      File.open(input_file, "r") do |input|
-        json_messages_from_stream(output_dir, input, options)
+  def collect_mapping(notes_dn, email_address)
+    self.mappings << {:notes_dn=>notes_dn, :email_address=>email_address} if self.mappings
+  end
+
+  def with_mappings(options)
+    mapping_file = options[:mapping_file]
+    log{|logger| logger.info "using mapping_file: #{options[:mapping_file]}"} if mapping_file
+    self.mappings=[]
+    yield
+  ensure
+    if mapping_file
+      File.open(mapping_file, "w") do |output|
+        output << "[\n"
+        output << self.mappings.map(&:to_json).join(",\n")
+        output << "\n]"
       end
     end
-    stats.each do |k,v|
+  end
+
+  def with_stats
+    self.stats={}
+    yield
+  ensure
+    self.stats.each do |k,v|
       log{|logger| logger.info("#{k}: #{v}")}
+    end
+  end
+
+  def json_messages(output_dir, input_files, options={})
+    with_stats do
+      with_mappings(options) do
+        [*input_files].each do |input_file|
+          File.open(input_file, "r") do |input|
+            json_messages_from_stream(output_dir, input, options)
+          end
+        end
+      end
     end
   end
 
@@ -151,22 +176,27 @@ module NotesStructuredTextJsonMessages
     end
   end
 
-  def process_address_pair(inet_addr, notes_addr)
+  def process_address_pair(inet_addr, notes_addr, options)
     if inet_addr == "."
       process_address(notes_addr)
     else
-      process_address(inet_addr)
+      inet_addr = process_address(inet_addr)
+      notes_addr = process_address(notes_addr)
+
+      collect_mapping(notes_addr[:notes_dn], inet_addr[:email_address])
+
+      inet_addr
     end
   end
 
-  def process_addresses(block, inet_field, notes_field)
+  def process_addresses(block, inet_field, notes_field, options)
     inet_h = header_values(block, inet_field, :split_rfc822_addresses)
     notes_h = header_values(block, notes_field, :split_rfc822_addresses)
 
     if inet_h && notes_h
       if inet_h.length == notes_h.length
         inet_h.zip(notes_h).map do |inet_addr, notes_addr|
-          process_address_pair(inet_addr, notes_addr)
+          process_address_pair(inet_addr, notes_addr, options)
         end
       else
         raise "#{inet_field}: does not match #{notes_field}:"
@@ -188,11 +218,17 @@ module NotesStructuredTextJsonMessages
 
   def extract_json_message(block, options={})
     message_id_h = header_value(block, MESSAGE_ID) 
-    raise "no #{MESSAGE_ID}" if !message_id_h
+    if !message_id_h
+      increment_stats(:failure_no_message_id)
+      raise "no #{MESSAGE_ID}"
+    end
     message_id = strip_angles(message_id_h)
 
     posted_date_h = header_value(block, POSTED_DATE)
-    raise "no #{POSTED_DATE}" if !posted_date_h
+    if !posted_date_h
+      increment_stats(:failure_no_posted_date)
+      raise "no #{POSTED_DATE}"
+    end
     posted_date = parse_date(posted_date_h, options)
 
     in_reply_to_h = header_value(block, IN_REPLY_TO)
@@ -201,14 +237,20 @@ module NotesStructuredTextJsonMessages
     references_h = header_values(block, REFERENCES, " ")
     references = references_h.map{|r| strip_angles(r)} if references_h
 
-    froms = process_addresses(block, INET_FROM, FROM)
-    raise "no From:, or more than one From:" if !froms || froms.size>1
+    froms = process_addresses(block, INET_FROM, FROM, options)
+    if !froms || froms.size>1
+      increment_stats(:failure_from)
+      raise "no From:, or more than one From:"
+    end
     from = froms[0]
-    to = process_addresses(block, INET_TO, TO)
-    cc = process_addresses(block, INET_CC, CC)
-    bcc = process_addresses(block, INET_BCC, BCC)
+    to = process_addresses(block, INET_TO, TO, options)
+    cc = process_addresses(block, INET_CC, CC, options)
+    bcc = process_addresses(block, INET_BCC, BCC, options)
 
-    raise "no recipients" if (to||[]).size + (cc||[]).size + (bcc||[]).size == 0
+    if (to||[]).size + (cc||[]).size + (bcc||[]).size == 0
+      increment_stats(:failure_no_recipients)
+      raise "no recipients" 
+    end
     
     { :message_type=>"email",
       :message_id=>message_id,
@@ -222,7 +264,8 @@ module NotesStructuredTextJsonMessages
   end
 
   def output_json_message(output_dir, json_message)
-    fname = File.join(output_dir, MD5.hexdigest(json_message[:message_id]))
+    fname = File.join(output_dir, "#{MD5.hexdigest(json_message[:message_id])}.json")
     File.open(fname, "w"){|out| out << json_message.to_json}
   end
+
 end
