@@ -187,7 +187,7 @@ module NotesStructuredTextJsonMessages
 
       collect_mapping(notes_addr, inet_addr)
 
-      inet_addr
+      notes_addr
     end
   end
 
