@@ -162,6 +162,7 @@ module NotesStructuredTextJsonMessages
   
   def process_address(addr)
     if is_distinguished_name?(addr)
+      addr = addr.gsub(/@.*$/, '')
       name = addr[/CN=([^\/]*)/, 1]
       h = {:notes_dn=>addr}
       h[:name] = name if name
