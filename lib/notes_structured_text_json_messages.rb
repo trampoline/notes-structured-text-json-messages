@@ -78,7 +78,24 @@ module NotesStructuredTextJsonMessages
   end
 
   def is_distinguished_name?(addr)
-    !!(addr =~ /CN=/)
+    !!((addr =~ %r{CN=}) ||
+       (addr =~ %r{OU=}) ||
+       (addr =~ %r{O=}) ||
+       (addr =~ %r{^[^/]+/[^/]+/[^/]+$}))
+  end
+
+  def normalize_distinguished_name(addr)
+    # remove trailing @DOMAIN
+    addr = addr.gsub(/@.*$/, '')
+
+    # expand short form to full form
+    if addr !~ /\=/
+      cs = addr.split("/")
+      raise "badly formatted compact dn: #{addr}" if cs.size<3
+      addr = "CN=#{cs[0]}/OU=#{cs[1]}/O=#{cs[2]}"
+    end
+
+    addr
   end
 
   def header_value(block, header)
@@ -270,5 +287,4 @@ module NotesStructuredTextJsonMessages
     fname = File.join(output_dir, "#{MD5.hexdigest(json_message[:message_id])}.json")
     File.open(fname, "w"){|out| out << json_message.to_json}
   end
-
 end

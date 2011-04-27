@@ -81,8 +81,32 @@ EOF
       NotesStructuredTextJsonMessages.is_distinguished_name?("CN=foo bar/OU=before/O=after").should == true
     end
 
-    it "should return false if there is no CN=... " do
+    it "should return true if the address is a compact DN" do
+      NotesStructuredTextJsonMessages.is_distinguished_name?("foo bar/before/after").should == true
+    end
+
+    it "should return false for an internet email address" do
       NotesStructuredTextJsonMessages.is_distinguished_name?("foo@bar.com").should == false
+    end
+  end
+
+  describe "normalize_distinguished_name" do
+    it "should remove a trailing @DOMAIN" do
+      NotesStructuredTextJsonMessages.normalize_distinguished_name("CN=foo mcfoo/OU=foofoo/O=foo@foo").should == "CN=foo mcfoo/OU=foofoo/O=foo"
+    end
+
+    it "should expand compact distinguished names" do
+      NotesStructuredTextJsonMessages.normalize_distinguished_name("foo mcfoo/foofoo/foo").should == "CN=foo mcfoo/OU=foofoo/O=foo"
+    end
+
+    it "should raise an exception for a badly formatted compact dn" do
+      lambda {
+        NotesStructuredTextJsonMessages.normalize_distinguished_name("foo mcfoo/foofoo")
+      }.should raise_error(/badly formatted compact dn/)
+    end
+
+    it "should do nothing to a regular distinguished names" do
+      NotesStructuredTextJsonMessages.normalize_distinguished_name("CN=foo mcfoo/OU=foofoo/O=foo").should == "CN=foo mcfoo/OU=foofoo/O=foo"
     end
   end
 
