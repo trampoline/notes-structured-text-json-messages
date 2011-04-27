@@ -163,13 +163,15 @@ module NotesStructuredTextJsonMessages
   def process_address(addr)
     if is_distinguished_name?(addr)
       name = addr[/CN=([^\/]*)/, 1]
-      { :name=>name,
-        :notes_dn=>addr}
+      h = {:notes_dn=>addr}
+      h[:name] = name if name
+      h
     else
       ta = TMail::Address.parse(addr)
       if ta.is_a?(TMail::Address)
-        { :name=>ta.name,
-          :email_address=>ta.address.downcase}
+        h = {:email_address=>ta.address.downcase}
+        h[:name] = ta.name if ta.name
+        h
       else
         log{|logger| logger.warn("addr does not parse to a TMail::Address: #{addr}")}
       end
