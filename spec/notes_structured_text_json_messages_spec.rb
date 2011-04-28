@@ -464,6 +464,12 @@ EOF
       j[:message_id].should == "foo123@foo.com"
     end
 
+    it "should set a connector" do
+      block = notes_message
+      j = NotesStructuredTextJsonMessages.extract_json_message(block)
+      j[:connector].should == "lotus_notes_structured_text"
+    end
+
     it "should parse a US date correctly" do
       block = notes_message
       j = NotesStructuredTextJsonMessages.extract_json_message(block)

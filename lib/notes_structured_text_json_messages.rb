@@ -272,7 +272,8 @@ module NotesStructuredTextJsonMessages
       raise "no recipients" 
     end
     
-    { :message_type=>"email",
+    { :connector=>"lotus_notes_structured_text",
+      :message_type=>"email",
       :message_id=>message_id,
       :sent_at=>posted_date,
       :in_reply_to=>in_reply_to,
