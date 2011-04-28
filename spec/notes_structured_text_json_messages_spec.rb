@@ -268,6 +268,11 @@ EOF
         {:name=>"Foo Bar", :notes_dn=>"CN=Foo Bar/OU=Here/O=There"}
     end
 
+    it "should convert compact-form distinguished names to long form" do
+      NotesStructuredTextJsonMessages.process_address("Foo Bar/Here/There").should == 
+        {:name=>"Foo Bar", :notes_dn=>"CN=Foo Bar/OU=Here/O=There"}
+    end
+
     it "should parse with TMail::Address if !is_distinguished_name?" do
       NotesStructuredTextJsonMessages.process_address('"foo bar" <foo@bar.com>').should ==
         {:name=>"foo bar", :email_address=>"foo@bar.com"}
