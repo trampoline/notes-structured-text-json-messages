@@ -12,6 +12,7 @@ module NotesStructuredTextJsonMessages
 
   def log
     yield logger if logger
+    nil
   end
 
   def increment_stats(key)
@@ -192,6 +193,7 @@ module NotesStructuredTextJsonMessages
         h
       else
         log{|logger| logger.warn("addr does not parse to a TMail::Address: #{addr}")}
+        nil
       end
     end
   end
@@ -205,7 +207,7 @@ module NotesStructuredTextJsonMessages
 
       collect_mapping(notes_addr, inet_addr)
 
-      notes_addr
+      notes_addr || inet_addr
     end
   end
 
@@ -215,19 +217,20 @@ module NotesStructuredTextJsonMessages
 
     if inet_h && notes_h
       if inet_h.length == notes_h.length
-        inet_h.zip(notes_h).map do |inet_addr, notes_addr|
+        addresses = inet_h.zip(notes_h).map do |inet_addr, notes_addr|
           process_address_pair(inet_addr, notes_addr, options)
         end
       else
         raise "#{inet_field}: does not match #{notes_field}:"
       end
     elsif inet_h
-      inet_h.map{|addr| process_address(addr)}
+      addresses = inet_h.map{|addr| process_address(addr)}
     elsif notes_h
-      notes_h.map{|addr| process_address(addr)}
+      addresses = notes_h.map{|addr| process_address(addr)}
     else
       nil
     end
+    addresses.compact if addresses
   end
 
   NOTES_US_DATE_FORMAT = "%m/%d/%Y %I:%M:%S %p"

@@ -1,6 +1,22 @@
 require File.expand_path(File.dirname(__FILE__) + '/spec_helper')
 
 describe NotesStructuredTextJsonMessages do
+  describe "log" do
+    it "should yield the logger and return nil" do
+      logger = Object.new
+      stub(NotesStructuredTextJsonMessages).logger{logger}
+      mock(logger).warn("boo"){true}
+      NotesStructuredTextJsonMessages.log{|logger| logger.warn("boo")}.should == nil
+    end
+
+    it "should do nothing if no logger is set" do
+      stub(NotesStructuredTextJsonMessages).logger{nil}
+      lambda{
+        NotesStructuredTextJsonMessages.log{|logger| logger.warn("boo")}.should == nil
+      }.should_not raise_error
+    end
+  end
+
   describe "json_messages" do
     it "should open each file and call json_messages_from_stream with it" do
       output_dir = Object.new
@@ -299,9 +315,14 @@ EOF
         {:name=>"foo bar", :notes_dn=>"CN=foo bar/OU=here/O=there"}
     end
 
-    it "should process_address the inet_addr if the inet_address is not '.'" do
+    it "should return the notes dn in preference to the inet_address" do
       NotesStructuredTextJsonMessages.process_address_pair('"foo bar" <foo@bar.com>', "CN=foo bar/OU=here/O=there", {}).should ==     
         {:name=>"foo bar", :notes_dn=>"CN=foo bar/OU=here/O=there"}
+    end
+    
+    it "if there are both an inet_addr and a notes_addr, should return the inet_addr if the notes_addr is nil" do
+      NotesStructuredTextJsonMessages.process_address_pair('"foo bar" <foo@bar.com>', 'Undisclosed recipients:;', {}).should ==
+        {:name=>"foo bar", :email_address=>"foo@bar.com"}
     end
   end
 
@@ -329,10 +350,11 @@ EOF
       stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["foo.mcfoo@foo.com", "bar.mcbar@bar.com"]}
       stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){["CN=foo mcfoo/OU=main/O=foo", "CN=bar mcbar/OU=main/O=bar"]}
 
-      mock(NotesStructuredTextJsonMessages).process_address_pair("foo.mcfoo@foo.com", "CN=foo mcfoo/OU=main/O=foo", options)
-      mock(NotesStructuredTextJsonMessages).process_address_pair("bar.mcbar@bar.com", "CN=bar mcbar/OU=main/O=bar", options)
+      mock(NotesStructuredTextJsonMessages).process_address_pair("foo.mcfoo@foo.com", "CN=foo mcfoo/OU=main/O=foo", options){{:name=>"foo mcfoo", :notes_dn=>"CN=foo mcfoo/OU=main/O=foo"}}
+      mock(NotesStructuredTextJsonMessages).process_address_pair("bar.mcbar@bar.com", "CN=bar mcbar/OU=main/O=bar", options){{:name=>"bar mcbar", :notes_dn=>"CN=bar mcbar/OU=main/O=bar"}}
 
-      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options)
+      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options).should ==
+        [{:name=>"foo mcfoo", :notes_dn=>"CN=foo mcfoo/OU=main/O=foo"},{:name=>"bar mcbar", :notes_dn=>"CN=bar mcbar/OU=main/O=bar"}]
     end
 
     it "should call process_address if an inet header is present" do
@@ -344,10 +366,11 @@ EOF
       stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["foo.mcfoo@foo.com", "bar.mcbar@bar.com"]}
       stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){nil}
 
-      mock(NotesStructuredTextJsonMessages).process_address("foo.mcfoo@foo.com")
-      mock(NotesStructuredTextJsonMessages).process_address("bar.mcbar@bar.com")
+      mock(NotesStructuredTextJsonMessages).process_address("foo.mcfoo@foo.com"){{:email_address=>"foo.mcfoo@foo.com"}}
+      mock(NotesStructuredTextJsonMessages).process_address("bar.mcbar@bar.com"){{:email_address=>"bar.mcbar@bar.com"}}
 
-      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options)
+      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options).should ==
+        [{:email_address=>"foo.mcfoo@foo.com"},{:email_address=>"bar.mcbar@bar.com"}]
     end
 
     it "should call process_address if a notes header is present" do
@@ -359,10 +382,24 @@ EOF
       stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){nil}
       stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){["CN=foo mcfoo/OU=main/O=foo", "CN=bar mcbar/OU=main/O=bar"]}
 
-      mock(NotesStructuredTextJsonMessages).process_address("CN=foo mcfoo/OU=main/O=foo")
-      mock(NotesStructuredTextJsonMessages).process_address("CN=bar mcbar/OU=main/O=bar")
+      mock(NotesStructuredTextJsonMessages).process_address("CN=foo mcfoo/OU=main/O=foo"){{:name=>"foo mcfoo", :notes_dn=>"CN=foo mcfoo/OU=main/O=foo"}}
+      mock(NotesStructuredTextJsonMessages).process_address("CN=bar mcbar/OU=main/O=bar"){{:name=>"bar mcbar", :notes_dn=>"CN=bar mcbar/OU=main/O=bar"}}
 
-      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options)
+      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options).should ==
+        [{:name=>"foo mcfoo", :notes_dn=>"CN=foo mcfoo/OU=main/O=foo"},{:name=>"bar mcbar", :notes_dn=>"CN=bar mcbar/OU=main/O=bar"}]
+    end
+
+    it "should compact the returned list of addresses" do
+      inet_field = Object.new
+      notes_field = Object.new
+      block = Object.new
+      options={}
+
+      stub(NotesStructuredTextJsonMessages).header_values(block, inet_field, :split_rfc822_addresses){["Undisclosed recipients:;", "bar.mcbar@bar.com"]}
+      stub(NotesStructuredTextJsonMessages).header_values(block, notes_field, :split_rfc822_addresses){nil}
+
+      NotesStructuredTextJsonMessages.process_addresses(block, inet_field, notes_field, options).should ==
+        [{:email_address=>"bar.mcbar@bar.com"}]
     end
     
   end
