@@ -107,17 +107,26 @@ EOF
   end
 
   describe "normalize_distinguished_name" do
+    it "should remove leading and trailing space" do
+      NotesStructuredTextJsonMessages.normalize_distinguished_name("   CN=foo mcfoo/OU=foofoo/O=foo   ").should == "CN=foo mcfoo/OU=foofoo/O=foo"
+      NotesStructuredTextJsonMessages.normalize_distinguished_name("   foo mcfoo/foo  ").should == "CN=foo mcfoo/O=foo"
+    end
+    
     it "should remove a trailing @DOMAIN" do
       NotesStructuredTextJsonMessages.normalize_distinguished_name("CN=foo mcfoo/OU=foofoo/O=foo@foo").should == "CN=foo mcfoo/OU=foofoo/O=foo"
     end
 
-    it "should expand compact distinguished names" do
+    it "should expand 3-component compact distinguished names" do
       NotesStructuredTextJsonMessages.normalize_distinguished_name("foo mcfoo/foofoo/foo").should == "CN=foo mcfoo/OU=foofoo/O=foo"
+    end
+
+    it "should expand 2-component compact distinguished names" do
+      NotesStructuredTextJsonMessages.normalize_distinguished_name("foo mcfoo/foo").should == "CN=foo mcfoo/O=foo"
     end
 
     it "should raise an exception for a badly formatted compact dn" do
       lambda {
-        NotesStructuredTextJsonMessages.normalize_distinguished_name("foo mcfoo/foofoo")
+        NotesStructuredTextJsonMessages.normalize_distinguished_name("foo mcfoo/foofoo/foofoo/foo")
       }.should raise_error(/badly formatted compact dn/)
     end
 

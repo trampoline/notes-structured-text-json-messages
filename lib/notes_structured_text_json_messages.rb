@@ -82,20 +82,26 @@ module NotesStructuredTextJsonMessages
     !!((addr =~ %r{CN=}) ||
        (addr =~ %r{OU=}) ||
        (addr =~ %r{O=}) ||
+       (addr =~ %r{^[^/]+/[^/]+$})
        (addr =~ %r{^[^/]+/[^/]+/[^/]+$}))
   end
 
   def normalize_distinguished_name(addr)
+    addr = addr.strip
     # remove trailing @DOMAIN
     addr = addr.gsub(/@.*$/, '')
 
     # expand short form to full form
     if addr !~ /\=/
       cs = addr.split("/")
-      raise "badly formatted compact dn: #{addr}" if cs.size<3
-      addr = "CN=#{cs[0]}/OU=#{cs[1]}/O=#{cs[2]}"
+      if cs.size==3
+        addr = "CN=#{cs[0]}/OU=#{cs[1]}/O=#{cs[2]}"
+      elsif cs.size==2
+        addr = "CN=#{cs[0]}/O=#{cs[1]}"
+      else
+        raise "badly formatted compact dn: #{addr}"
+      end
     end
-
     addr
   end
 
