@@ -97,8 +97,12 @@ EOF
       NotesStructuredTextJsonMessages.is_distinguished_name?("CN=foo bar/OU=before/O=after").should == true
     end
 
-    it "should return true if the address is a compact DN" do
+    it "should return true if the address is a 3-component compact DN" do
       NotesStructuredTextJsonMessages.is_distinguished_name?("foo bar/before/after").should == true
+    end
+
+    it "should return true if the address is a 2-component compact DN" do
+      NotesStructuredTextJsonMessages.is_distinguished_name?("foo bar/foofoo").should == true
     end
 
     it "should return false for an internet email address" do

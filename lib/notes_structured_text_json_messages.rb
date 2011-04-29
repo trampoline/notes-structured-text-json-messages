@@ -82,7 +82,7 @@ module NotesStructuredTextJsonMessages
     !!((addr =~ %r{CN=}) ||
        (addr =~ %r{OU=}) ||
        (addr =~ %r{O=}) ||
-       (addr =~ %r{^[^/]+/[^/]+$})
+       (addr =~ %r{^[^/]+/[^/]+$}) ||
        (addr =~ %r{^[^/]+/[^/]+/[^/]+$}))
   end
 
